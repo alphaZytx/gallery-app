@@ -2,9 +2,7 @@
 import React, { useState, useCallback } from 'react';
 import styled from 'styled-components';
 import { useDropzone } from 'react-dropzone';
-import Button from '../common/Button';
-// Spinner import was previously unused based on linting, re-add if needed for visual loading within form itself
-// import Spinner from '../common/Spinner';
+import Button from '../common/Button'; // Optimized Button handles its own spinner
 import { FiUploadCloud, FiFileText, FiXCircle } from 'react-icons/fi';
 import { uploadMedia } from '../../api';
 
@@ -14,6 +12,7 @@ const FormContainer = styled.form`
   gap: 1.5rem;
 `;
 
+// Using $isDragActive transient prop for styling
 const DropzoneContainer = styled.div`
   border: 2px dashed ${({ theme, $isDragActive }) => ($isDragActive ? theme.primary : theme.borderColor)};
   border-radius: ${({ theme }) => theme.borderRadius};
@@ -49,6 +48,7 @@ const FilePreviewContainer = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  animation: fadeInAnimation 0.3s ease-out; /* Added fade-in for preview */
 `;
 
 const FileInfo = styled.div`
@@ -73,6 +73,7 @@ const RemoveFileButton = styled.button`
   cursor: pointer;
   font-size: 1.2rem;
   padding: 0.25rem;
+  transition: color 0.2s ease;
   
   &:hover {
     color: ${({ theme }) => theme.dangerHover || '#c82333'};
@@ -99,12 +100,12 @@ const InputGroup = styled.div`
     background-color: ${({ theme }) => theme.inputBg};
     color: ${({ theme }) => theme.text};
     font-size: 0.95rem;
-    transition: border-color 0.3s ease;
+    transition: border-color 0.3s ease, box-shadow 0.2s ease;
 
     &:focus {
       outline: none;
       border-color: ${({ theme }) => theme.primary};
-      box-shadow: 0 0 0 2px ${({ theme }) => theme.primary}33;
+      box-shadow: 0 0 0 3px ${({ theme }) => theme.primary}33;
     }
   }
   textarea {
@@ -113,31 +114,41 @@ const InputGroup = styled.div`
   }
 `;
 
-const ErrorMessage = styled.p`
-  color: ${({ theme }) => theme.danger || '#dc3545'};
-  font-size: 0.85rem;
-  margin-top: 0.25rem;
+const MessageText = styled.p` // Generic message component
+  font-size: 0.9rem;
+  margin-top: -0.5rem;
+  margin-bottom: 0.5rem;
   text-align: center;
+  padding: 0.5rem;
+  border-radius: ${({ theme }) => theme.borderRadius};
+  animation: fadeInAnimation 0.3s ease-out;
 `;
+
+const ErrorMessage = styled(MessageText)`
+  color: ${({ theme }) => theme.danger || '#dc3545'};
+  background-color: ${({ theme }) => (theme.danger || '#dc3545')}1A; // Light background for error
+`;
+
+// Optional: Success message styling if you want to show it within the form
+// const SuccessMessage = styled(MessageText)`
+//   color: ${({ theme }) => theme.accent || '#28a745'};
+//   background-color: ${({ theme }) => (theme.accent || '#28a745')}1A;
+// `;
 
 const UploadForm = ({ onUploadSuccess, closeModal }) => {
   const [file, setFile] = useState(null);
   const [customName, setCustomName] = useState('');
   const [tags, setTags] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false); // Renamed from isLoading for clarity
   const [error, setError] = useState('');
-  // const [uploadProgress, setUploadProgress] = useState(0);
+  // const [uploadProgress, setUploadProgress] = useState(0); // For detailed progress bar
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles && acceptedFiles.length > 0) {
       const currentFile = acceptedFiles[0];
-      console.log("React-Dropzone accepted file:", currentFile);
-      console.log("React-Dropzone file type:", currentFile.type);
-      console.log("React-Dropzone file size:", currentFile.size);
-
       const maxSize = currentFile.type.startsWith('image/') ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
       if (currentFile.size > maxSize) {
-        setError(`File is too large. Max size for ${currentFile.type.startsWith('image/') ? 'images' : 'videos'} is ${maxSize / (1024*1024)}MB.`);
+        setError(`File too large. Max: ${maxSize / (1024*1024)}MB.`);
         setFile(null);
         return;
       }
@@ -147,11 +158,11 @@ const UploadForm = ({ onUploadSuccess, closeModal }) => {
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ // 'isDragActive' is from the hook
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'],
-      'video/*': ['.mp4', '.webm', '.mov', '.avi']
+      'video/*': ['.mp4', '.webm', '.mov'] // Adjust as per backend allowed types
     },
     multiple: false,
   });
@@ -169,14 +180,8 @@ const UploadForm = ({ onUploadSuccess, closeModal }) => {
       setError('Please select a file to upload.');
       return;
     }
-    setIsLoading(true);
+    setIsUploading(true);
     setError('');
-
-    console.log("UploadForm handleSubmit: File object before FormData:", file);
-    console.log("UploadForm handleSubmit: File object type:", file?.constructor?.name);
-    console.log("UploadForm handleSubmit: File name:", file?.name);
-    console.log("UploadForm handleSubmit: File size:", file?.size);
-    console.log("UploadForm handleSubmit: File type:", file?.type);
 
     const formData = new FormData();
     formData.append('mediaFile', file);
@@ -185,27 +190,26 @@ const UploadForm = ({ onUploadSuccess, closeModal }) => {
 
     try {
       const response = await uploadMedia(formData);
-      onUploadSuccess(response.data.media);
+      onUploadSuccess(response.data.media); // This should trigger success message in parent
       setFile(null);
       setCustomName('');
       setTags('');
+      // Success message handled by parent (AdminDashboardPage)
       if(closeModal) closeModal();
     } catch (err) {
       console.error('Upload failed in UploadForm:', err.response?.data?.message || err.message);
       setError(err.response?.data?.message || 'Upload failed. Please try again.');
     } finally {
-      setIsLoading(false);
+      setIsUploading(false);
     }
   };
 
   return (
     <FormContainer onSubmit={handleSubmit}>
-      {/* Pass $isDragActive (transient prop) to the styled component */}
-      <DropzoneContainer {...getRootProps()} $isDragActive={isDragActive}> 
+      <DropzoneContainer {...getRootProps()} $isDragActive={isDragActive}>
         <input {...getInputProps()} />
         <UploadIcon />
-        {/* Use the original 'isDragActive' (boolean from the hook) for JS logic */}
-        {isDragActive ? ( 
+        {isDragActive ? (
           <p>Drop the file here ...</p>
         ) : (
           <p>Drag 'n' drop a file here, or click to select file</p>
@@ -235,7 +239,7 @@ const UploadForm = ({ onUploadSuccess, closeModal }) => {
           value={customName}
           onChange={(e) => setCustomName(e.target.value)}
           placeholder="e.g., Sunset Over Mountains"
-          disabled={isLoading}
+          disabled={isUploading}
         />
       </InputGroup>
 
@@ -247,15 +251,20 @@ const UploadForm = ({ onUploadSuccess, closeModal }) => {
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           placeholder="e.g., nature, landscape, sunset"
-          disabled={isLoading}
+          disabled={isUploading}
         />
       </InputGroup>
 
-      <Button type="submit" variant="primary" isLoading={isLoading} disabled={isLoading || !file}>
-        {isLoading ? 'Uploading...' : 'Upload Media'}
+      <Button 
+        type="submit" 
+        variant="primary" 
+        isLoading={isUploading} // Pass state to Button's isLoading prop
+        disabled={isUploading || !file}
+      >
+        Upload Media
       </Button>
     </FormContainer>
   );
 };
 
-export default UploadForm;
+export default React.memo(UploadForm);

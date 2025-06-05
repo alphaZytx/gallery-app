@@ -72,18 +72,18 @@ router.get('/gallery', async (req, res) => {
 
 router.get('/view/:pathname(*)', async (req, res) => {
     const { pathname } = req.params;
-    console.log(`--- VIEW ROUTE HIT --- Attempting to view: "${pathname}"`);
+    // console.log(`--- VIEW ROUTE HIT --- Attempting to view: "${pathname}"`);
     if (!BLOB_READ_WRITE_TOKEN || BLOB_READ_WRITE_TOKEN.includes('dummytoken')) {
         return res.status(500).json({ message: "Server configuration error (blob token)." });
     }
     try {
         const listResult = await list({ prefix: pathname, limit: 1, token: BLOB_READ_WRITE_TOKEN });
-        console.log(`VIEW ROUTE: Vercel Blob list() for prefix "${pathname}":`, JSON.stringify(listResult, null, 2));
+        // console.log(`VIEW ROUTE: Vercel Blob list() for prefix "${pathname}":`, JSON.stringify(listResult, null, 2));
         if (!listResult.blobs || listResult.blobs.length === 0 || !listResult.blobs[0].url) {
             return res.status(404).json({ message: `Media file not found for: ${pathname}` });
         }
         const blobToView = listResult.blobs[0];
-        console.log(`VIEW ROUTE: Fetching from Vercel Blob URL: ${blobToView.url}`);
+        // console.log(`VIEW ROUTE: Fetching from Vercel Blob URL: ${blobToView.url}`);
         const fetchResponse = await fetch(blobToView.url);
 
         if (!fetchResponse.ok) {
@@ -114,7 +114,7 @@ router.get('/view/:pathname(*)', async (req, res) => {
 router.get('/download/:pathname(*)', async (req, res) => {
     const { pathname } = req.params;
     const userRequestedFilename = req.query.filename;
-    console.log(`--- DOWNLOAD ROUTE HIT --- Pathname: "${pathname}", User Filename: "${userRequestedFilename}"`);
+    // console.log(`--- DOWNLOAD ROUTE HIT --- Pathname: "${pathname}", User Filename: "${userRequestedFilename}"`);
     if (!BLOB_READ_WRITE_TOKEN || BLOB_READ_WRITE_TOKEN.includes('dummytoken')) {
         return res.status(500).json({ message: "Server configuration error (blob token)." });
     }
@@ -157,9 +157,9 @@ router.get('/download/:pathname(*)', async (req, res) => {
 
 // === ADMIN PROTECTED ROUTES ===
 router.post('/upload', protect, upload.single('mediaFile'), async (req, res) => {
-    console.log("--- UPLOAD ROUTE HIT (ACTUAL LOGIC) ---");
+    // console.log("--- UPLOAD ROUTE HIT (ACTUAL LOGIC) ---");
     if(req.file) console.log("UPLOAD ROUTE: req.file received:", { originalname: req.file.originalname, size: req.file.size }); else console.log("UPLOAD ROUTE: req.file is UNDEFINED.");
-    console.log("UPLOAD ROUTE: req.body:", req.body);
+    // console.log("UPLOAD ROUTE: req.body:", req.body);
 
     if (!req.file) return res.status(400).json({ message: 'No media file was uploaded.' });
     if (!BLOB_READ_WRITE_TOKEN || BLOB_READ_WRITE_TOKEN.includes('dummytoken')) return res.status(500).json({ message: "Server configuration error (blob token)." });
@@ -170,13 +170,13 @@ router.post('/upload', protect, upload.single('mediaFile'), async (req, res) => 
     const suggestedPathname = generateSuggestedPathname(req.file.originalname, fileType);
 
     try {
-        console.log(`UPLOAD ROUTE: Uploading to Vercel Blob with suggested pathname: ${suggestedPathname}`);
+        // console.log(`UPLOAD ROUTE: Uploading to Vercel Blob with suggested pathname: ${suggestedPathname}`);
         const blobResult = await put(suggestedPathname, req.file.buffer, {
             access: 'public', // As per your earlier change to make blobs public
             contentType: req.file.mimetype,
             token: BLOB_READ_WRITE_TOKEN,
         });
-        console.log("UPLOAD ROUTE: Vercel Blob upload successful. Full blobResult:", JSON.stringify(blobResult, null, 2));
+        // console.log("UPLOAD ROUTE: Vercel Blob upload successful. Full blobResult:", JSON.stringify(blobResult, null, 2));
 
         let actualStoredPathname;
         if (blobResult && blobResult.url) {
@@ -192,7 +192,7 @@ router.post('/upload', protect, upload.single('mediaFile'), async (req, res) => 
             console.error("UPLOAD ROUTE ERROR: blobResult.url is missing. Cannot determine actual stored pathname.");
             throw new Error("Vercel Blob upload result did not contain a usable URL.");
         }
-        console.log("UPLOAD ROUTE: Derived actual stored pathname for Redis:", actualStoredPathname);
+        // console.log("UPLOAD ROUTE: Derived actual stored pathname for Redis:", actualStoredPathname);
 
         const mediaId = uuidv4();
         const uploadTimestamp = new Date();
@@ -203,12 +203,12 @@ router.post('/upload', protect, upload.single('mediaFile'), async (req, res) => 
             contentType: req.file.mimetype, size: req.file.size.toString(), type: fileType,
             uploadedAt: uploadTimestamp.toISOString(), uploader: req.user.email,
         };
-        console.log(`UPLOAD ROUTE: Saving metadata to Redis for mediaId: ${mediaId} with pathname: ${mediaData.pathname}`);
+        // console.log(`UPLOAD ROUTE: Saving metadata to Redis for mediaId: ${mediaId} with pathname: ${mediaData.pathname}`);
         const pipeline = redisClient.pipeline();
         pipeline.hset(`media:${mediaId}`, mediaData);
         pipeline.zadd('media_by_date', { score: uploadTimestamp.getTime(), member: mediaId });
         await pipeline.exec();
-        console.log("UPLOAD ROUTE: Redis metadata save successful.");
+        // console.log("UPLOAD ROUTE: Redis metadata save successful.");
         res.status(201).json({ message: 'Media uploaded successfully.', media: mediaData });
     } catch (error) {
         console.error('UPLOAD ROUTE: Upload process failed:', error);

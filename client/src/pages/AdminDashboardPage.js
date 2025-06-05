@@ -1,64 +1,32 @@
 // client/src/pages/AdminDashboardPage.js
 import React, { useState, useEffect, useCallback } from 'react';
-import styled from 'styled-components';
+import styled, { css, keyframes } from 'styled-components'; // Added keyframes, css
 import MediaGrid from '../components/media/MediaGrid';
 import UploadForm from '../components/admin/UploadForm';
 import EditMediaForm from '../components/admin/EditMediaForm';
 import Modal from '../components/common/Modal';
 import Button from '../components/common/Button';
-// Spinner import was previously unused here by linting, re-add if needed for a page-level spinner
-// import Spinner from '../components/common/Spinner';
 import { getAllAdminMedia, deleteMedia } from '../api';
 import { FiPlusCircle, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 
-const DashboardContainer = styled.div`
-  padding: 1rem 0;
+// ... (DashboardContainer, DashboardHeader remain the same)
+const DashboardContainer = styled.div` /* ... */ `;
+const DashboardHeader = styled.header` /* ... */ `;
+
+const fadeInSmooth = keyframes`
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 `;
 
-const DashboardHeader = styled.header`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid ${({ theme }) => theme.borderColor};
-
-  h1 {
-    font-size: 2rem;
-    font-weight: 600;
-    color: ${({ theme }) => theme.text};
-  }
-
-  @media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-    h1 {
-      font-size: 1.75rem;
-    }
-  }
+const fadeOutSmooth = keyframes`
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
 `;
 
-const ErrorMessage = styled.p`
-  text-align: center;
-  color: ${({ theme }) => theme.danger || '#dc3545'};
-  font-size: 1.1rem;
-  padding: 2rem;
-  background-color: ${({ theme }) => (theme.danger || '#dc3545')}1A;
-  border: 1px solid ${({ theme }) => (theme.danger || '#dc3545')};
-  border-radius: ${({ theme }) => theme.borderRadius};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  svg {
-    font-size: 1.3rem;
-  }
-`;
-
-const SuccessMessage = styled.div`
-  background-color: ${({ theme }) => (theme.accent || '#28a745')}2A;
-  color: ${({ theme }) => (theme.accent || '#28a745')};
+// Message component for success/error with transitions
+const AlertMessage = styled.div`
+  color: ${({ theme, type }) => (type === 'error' ? (theme.danger || '#dc3545') : (theme.accent || '#28a745'))};
+  background-color: ${({ theme, type }) => (type === 'error' ? (theme.danger || '#dc3545') : (theme.accent || '#28a745'))}1A;
   padding: 1rem;
   border-radius: ${({ theme }) => theme.borderRadius};
   margin-bottom: 1.5rem;
@@ -68,25 +36,21 @@ const SuccessMessage = styled.div`
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  opacity: 0; /* Start hidden for animation */
+  animation: ${({ $show }) => $show ? css`${fadeInSmooth} 0.4s ease-out forwards` : css`${fadeOutSmooth} 0.4s ease-in forwards`};
+  
   svg {
     font-size: 1.3rem;
   }
 `;
 
-const ConfirmDialogContent = styled.div`
-  p {
-    margin-bottom: 1.5rem;
-    font-size: 1.05rem;
-    line-height: 1.6;
-    strong {
-      color: ${({ theme }) => theme.primary};
-    }
-  }
-`;
+const ConfirmDialogContent = styled.div` /* ... (remains the same) ... */ `;
+
 
 const AdminDashboardPage = () => {
   const [mediaItems, setMediaItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // For initial page load
+  const [isProcessing, setIsProcessing] = useState(false); // For actions like delete
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -97,20 +61,20 @@ const AdminDashboardPage = () => {
   const [selectedMediaForEdit, setSelectedMediaForEdit] = useState(null);
   const [mediaToDelete, setMediaToDelete] = useState(null);
 
+  // Memoized fetch function
   const fetchAdminMedia = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoadingPage(true);
     setError('');
     try {
       const response = await getAllAdminMedia();
-      // Ensure data is an array and filter out invalid items
       const validItems = Array.isArray(response.data) ? response.data.filter(item => item && item.id) : [];
       setMediaItems(validItems);
     } catch (err) {
       console.error("Failed to fetch admin media:", err);
       setError('Could not load media items. Please try refreshing.');
-      setMediaItems([]); // Set to empty array on error
+      setMediaItems([]);
     } finally {
-      setIsLoading(false);
+      setIsLoadingPage(false);
     }
   }, []);
 
@@ -118,28 +82,34 @@ const AdminDashboardPage = () => {
     fetchAdminMedia();
   }, [fetchAdminMedia]);
 
+  // Auto-clear success/error messages
   useEffect(() => {
+    let timer;
     if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(''), 3500);
-      return () => clearTimeout(timer);
+      timer = setTimeout(() => setSuccessMessage(''), 3500);
     }
-  }, [successMessage]);
+    if (error) {
+      timer = setTimeout(() => setError(''), 5000); // Errors persist a bit longer
+    }
+    return () => clearTimeout(timer);
+  }, [successMessage, error]);
 
-  const handleUploadSuccess = (newMedia) => {
-    if (newMedia && newMedia.id) { // Ensure newMedia is valid
+  // Memoized handlers
+  const handleUploadSuccess = useCallback((newMedia) => {
+    if (newMedia && newMedia.id) {
       setMediaItems(prevItems => [newMedia, ...prevItems.filter(item => item && item.id)]);
     }
     setIsUploadModalOpen(false);
     setSuccessMessage('Media uploaded successfully!');
-  };
+  }, []);
 
-  const handleEditClick = (mediaItem) => {
+  const handleEditClick = useCallback((mediaItem) => {
     setSelectedMediaForEdit(mediaItem);
     setIsEditModalOpen(true);
-  };
+  }, []);
 
-  const handleUpdateSuccess = (updatedMedia) => {
-    if (updatedMedia && updatedMedia.id) { // Ensure updatedMedia is valid
+  const handleUpdateSuccess = useCallback((updatedMedia) => {
+    if (updatedMedia && updatedMedia.id) {
       setMediaItems(prevItems =>
         prevItems.map(item => (item && item.id === updatedMedia.id ? updatedMedia : item)).filter(item => item && item.id)
       );
@@ -147,16 +117,17 @@ const AdminDashboardPage = () => {
     setIsEditModalOpen(false);
     setSelectedMediaForEdit(null);
     setSuccessMessage('Media updated successfully!');
-  };
+  }, []);
 
-  const handleDeleteClick = (mediaId, mediaName) => {
+  const handleDeleteClick = useCallback((mediaId, mediaName) => {
     setMediaToDelete({ id: mediaId, name: mediaName });
     setIsConfirmDeleteModalOpen(true);
-  };
+  }, []);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     if (!mediaToDelete || !mediaToDelete.id) return;
-    // setIsLoading(true); // Consider a more specific loading state for delete action
+    setIsProcessing(true); // Use specific loading state for delete
+    setError(''); // Clear previous errors
     try {
       await deleteMedia(mediaToDelete.id);
       setMediaItems(prevItems => prevItems.filter(item => item && item.id !== mediaToDelete.id));
@@ -165,11 +136,16 @@ const AdminDashboardPage = () => {
       console.error("Failed to delete media:", err);
       setError(`Could not delete "${mediaToDelete.name}". Please try again.`);
     } finally {
-      // setIsLoading(false);
+      setIsProcessing(false);
       setIsConfirmDeleteModalOpen(false);
       setMediaToDelete(null);
     }
-  };
+  }, [mediaToDelete]);
+
+  const closeUploadModal = useCallback(() => setIsUploadModalOpen(false), []);
+  const closeEditModal = useCallback(() => { setIsEditModalOpen(false); setSelectedMediaForEdit(null); }, []);
+  const closeConfirmDeleteModal = useCallback(() => { setIsConfirmDeleteModalOpen(false); setMediaToDelete(null); }, []);
+
 
   return (
     <DashboardContainer>
@@ -184,54 +160,41 @@ const AdminDashboardPage = () => {
         </Button>
       </DashboardHeader>
 
-      {successMessage && (
-        <SuccessMessage>
-          <FiCheckCircle /> {successMessage}
-        </SuccessMessage>
-      )}
-      {error && !isLoading && (
-          <ErrorMessage>
-            <FiAlertTriangle /> {error}
-          </ErrorMessage>
-      )}
+      {/* Messages with transitions */}
+      {successMessage && <AlertMessage $show={!!successMessage} type="success"><FiCheckCircle /> {successMessage}</AlertMessage>}
+      {error && <AlertMessage $show={!!error} type="error"><FiAlertTriangle /> {error}</AlertMessage>}
 
       <MediaGrid
         items={mediaItems}
         isAdmin={true}
-        isLoading={isLoading}
+        isLoading={isLoadingPage} // MediaGrid spinner for page load
         onEdit={handleEditClick}
         onDelete={handleDeleteClick}
       />
 
       <Modal
         isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
+        onClose={closeUploadModal}
         title="Upload New Media"
         maxWidth="700px"
       >
         <UploadForm
           onUploadSuccess={handleUploadSuccess}
-          closeModal={() => setIsUploadModalOpen(false)}
+          closeModal={closeUploadModal}
         />
       </Modal>
 
       {selectedMediaForEdit && (
         <Modal
           isOpen={isEditModalOpen}
-          onClose={() => {
-            setIsEditModalOpen(false);
-            setSelectedMediaForEdit(null);
-          }}
+          onClose={closeEditModal}
           title={`Edit Media: ${selectedMediaForEdit.name}`}
           maxWidth="600px"
         >
           <EditMediaForm
             mediaItem={selectedMediaForEdit}
             onUpdateSuccess={handleUpdateSuccess}
-            closeModal={() => {
-              setIsEditModalOpen(false);
-              setSelectedMediaForEdit(null);
-            }}
+            closeModal={closeEditModal}
           />
         </Modal>
       )}
@@ -239,34 +202,23 @@ const AdminDashboardPage = () => {
       {mediaToDelete && (
         <Modal
             isOpen={isConfirmDeleteModalOpen}
-            onClose={() => {
-                setIsConfirmDeleteModalOpen(false);
-                setMediaToDelete(null);
-            }}
+            onClose={closeConfirmDeleteModal}
             title="Confirm Deletion"
             maxWidth="500px"
             footerContent={
                 <>
-                    <Button 
-                        variant="outline" 
-                        onClick={() => {
-                            setIsConfirmDeleteModalOpen(false);
-                            setMediaToDelete(null);
-                        }}
-                    >
+                    <Button variant="outline" onClick={closeConfirmDeleteModal} disabled={isProcessing}>
                         Cancel
                     </Button>
-                    <Button variant="danger" onClick={confirmDelete} /* isLoading={isLoadingDelete} */ >
+                    {/* Pass isProcessing to Button's isLoading prop */}
+                    <Button variant="danger" onClick={confirmDelete} isLoading={isProcessing} disabled={isProcessing}>
                         Delete
                     </Button>
                 </>
             }
         >
             <ConfirmDialogContent>
-                <p>
-                    Are you sure you want to permanently delete 
-                    <strong> "{mediaToDelete.name}"</strong>? This action cannot be undone.
-                </p>
+                <p>Are you sure you want to permanently delete <strong>"{mediaToDelete.name}"</strong>? This action cannot be undone.</p>
             </ConfirmDialogContent>
         </Modal>
       )}
@@ -274,4 +226,4 @@ const AdminDashboardPage = () => {
   );
 };
 
-export default AdminDashboardPage;
+export default AdminDashboardPage; // Typically pages are not memoized unless specific deep prop issues

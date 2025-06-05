@@ -1,8 +1,13 @@
 // client/src/components/media/MediaCard.js
 import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 import { getMediaViewURL } from '../../api';
-import { FiMaximize2, FiImage } from 'react-icons/fi';
+import { FiMaximize2, FiImage, FiAlertCircle, FiLoader } from 'react-icons/fi';
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+`;
 
 const CardWrapper = styled.div`
   background-color: ${({ theme }) => theme.cardBg};
@@ -10,29 +15,34 @@ const CardWrapper = styled.div`
   box-shadow: ${({ theme }) => theme.cardShadow};
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), 
+              box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   display: flex;
-  flex-direction: column;
+  animation: ${fadeIn} 0.5s ease-out;
 
   &:hover {
-    transform: translateY(-5px) scale(1.02);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    transform: translateY(-6px) scale(1.03);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   }
-
-  &:hover .overlay {
-    opacity: 1;
-  }
+  &:hover .media-overlay { opacity: 1; }
 `;
 
 const ImageContainer = styled.div`
   width: 100%;
-  padding-top: 75%; /* Aspect ratio 4:3 */
+  /* Aspect Ratio: To make images taller, increase padding-top percentage.
+     4:3 (landscape) => padding-top: 75%;
+     1:1 (square)    => padding-top: 100%;
+     3:4 (portrait)  => padding-top: 133.33%; 
+     2:3 (portrait)  => padding-top: 150%;
+  */
+  padding-top: 133.33%; /* Aspect ratio 3:4 (taller images) */
   position: relative;
   background-color: ${({ theme }) => (theme.body === '#1A1D24' ? '#282c34' : '#f0f2f5')};
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 `;
 
 const StyledImage = styled.img`
@@ -42,11 +52,14 @@ const StyledImage = styled.img`
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.4s ease-in-out;
-  opacity: ${({ $loaded }) => ($loaded ? 1 : 0)};
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out 0.1s, transform 0.4s ease-out;
+
+  ${CardWrapper}:hover & { transform: scale(1.05); }
+  ${({ $loaded, $error }) => ($loaded && !$error) && css`opacity: 1;`}
 `;
 
-const PlaceholderIconContainer = styled.div`
+const StatusContainer = styled.div`
   position: absolute;
   top: 0;
   left: 0;
@@ -55,110 +68,131 @@ const PlaceholderIconContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: ${({ $visible }) => ($visible ? 1 : 0)};
-  transition: opacity 0.3s ease;
+  opacity: ${({ $show }) => ($show ? 1 : 0)};
+  transition: opacity 0.3s ease-in-out;
+  pointer-events: none;
 `;
 
-const PlaceholderIcon = styled(FiImage)`
-  font-size: 3rem;
-  color: ${({ theme }) => theme.secondary};
+const StatusIcon = styled.div`
+  font-size: 2.5rem;
+  color: ${({ theme, $isError }) => ($isError ? theme.danger : theme.secondary)}B3;
+  ${({ $isLoading }) => $isLoading && css`
+    svg {
+      animation: ${keyframes`from{transform:rotate(0deg)}to{transform:rotate(360deg)}`} 1s linear infinite;
+    }
+  `}
 `;
 
-const Overlay = styled.div`
+const MediaOverlay = styled.div`
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.5);
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0) 100%);
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: center;
   color: white;
   opacity: 0;
-  transition: opacity 0.3s ease;
-  padding: 1rem;
+  transition: opacity 0.35s ease-in-out;
+  padding: 0.8rem;
   text-align: center;
+  box-sizing: border-box;
 `;
 
-const OverlayIcon = styled(FiMaximize2)`
-  font-size: 2.5rem;
+const OverlayViewDetails = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 500;
   margin-bottom: 0.5rem;
 `;
 
-const CardInfo = styled.div`
-  padding: 0.8rem 1rem;
-  h3 {
-    font-size: 1.0rem; /* Adjusted for cleaner look */
-    font-weight: 500; /* Slightly less bold */
-    color: ${({ theme }) => theme.text};
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-    line-height: 1.4;
-  }
+const OverlayIcon = styled(FiMaximize2)`
+  font-size: 1.2rem;
+`;
+
+const DisplayNameInOverlay = styled.h3`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.3;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
 `;
 
 const MediaCard = ({ mediaItem, onClick }) => {
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [isImageActuallyLoading, setIsImageActuallyLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
 
   const imageUrl = mediaItem?.pathname ? getMediaViewURL(mediaItem.pathname) : '';
 
   useEffect(() => {
-    setImageLoaded(false);
+    setIsImageActuallyLoading(true);
     setImageError(false);
-  }, [imageUrl]); // Reset when imageUrl changes (i.e., when mediaItem changes)
+  }, [imageUrl]);
 
-  const handleImageLoad = () => setImageLoaded(true);
-  const handleImageError = (e) => {
-    console.error(`MediaCard: Failed to load image. URL: ${imageUrl}`, e);
+  const handleImageLoad = () => {
+    setIsImageActuallyLoading(false);
+    setImageError(false);
+  };
+  const handleImageError = () => {
+    setIsImageActuallyLoading(false);
     setImageError(true);
   };
-
-  // Determine a user-friendly display name
-  // If mediaItem.name looks like a typical uploaded filename (e.g., includes extension, or common prefixes),
-  // try to make it cleaner. Otherwise, use it as is. This is a basic heuristic.
-  let displayName = mediaItem?.name || "Untitled Media";
-  if (displayName.match(/\.(jpeg|jpg|png|gif|webp|mp4|mov|webm)$/i) || displayName.startsWith("image") || displayName.startsWith("video")) {
-    // If it has tags, prefer using the first tag as a title, or a generic title
-    displayName = mediaItem.tags && mediaItem.tags.length > 0 ? mediaItem.tags[0] : "View Media";
-    // Capitalize the first letter of the tag or "View Media"
-    displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+  
+  let displayName = mediaItem?.name || "Untitled";
+  if (mediaItem?.name?.match(/\.(jpeg|jpg|png|gif|webp|mp4|mov|webm)$/i) || 
+      mediaItem?.name?.toLowerCase().startsWith("image") || 
+      mediaItem?.name?.toLowerCase().startsWith("video")) {
+    displayName = mediaItem.tags && mediaItem.tags.length > 0 
+                  ? mediaItem.tags[0] 
+                  : "Media Item";
   }
-
+  displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
   return (
-    <CardWrapper onClick={onClick} title={`View ${mediaItem?.name || 'Details'}`}>
-      <ImageContainer>
-        {/* Show placeholder only if not loaded and no error yet, or if error occurred */}
-        <PlaceholderIconContainer $visible={!imageLoaded || imageError}>
-          <PlaceholderIcon title={imageError ? "Error loading image" : "Loading image..."} />
-        </PlaceholderIconContainer>
+    <CardWrapper onClick={onClick} title={`View details for ${mediaItem?.name || 'this media'}`}>
+      <ImageContainer> {/* This div now controls the aspect ratio */}
+        <StatusContainer $show={isImageActuallyLoading || imageError}>
+          {isImageActuallyLoading && !imageError && <StatusIcon as={FiLoader} $isLoading title="Loading image..." />}
+          {imageError && <StatusIcon as={FiAlertCircle} $isError title="Error loading image" />}
+          {!isImageActuallyLoading && !imageError && !imageUrl && 
+            <StatusIcon as={FiImage} title="Image unavailable" />
+          }
+        </StatusContainer>
 
-        {imageUrl && ( // Only attempt to render image if URL is valid
+        {imageUrl && (
           <StyledImage
             src={imageUrl}
             alt={mediaItem?.name || 'Gallery item'}
             onLoad={handleImageLoad}
             onError={handleImageError}
-            $loaded={imageLoaded && !imageError} // Image is fully visible only when loaded and no error
-            style={{ display: (imageLoaded || imageError) ? 'block' : 'none' }} // Hide img tag until loaded/error to prevent broken icon
+            $loaded={!isImageActuallyLoading && !imageError}
+            $error={imageError}
+            style={{ visibility: isImageActuallyLoading ? 'hidden' : 'visible' }}
             loading="lazy"
           />
         )}
-        <Overlay className="overlay">
-          <OverlayIcon />
-          <span>View Details</span>
-        </Overlay>
+        
+        <MediaOverlay className="media-overlay">
+          <OverlayViewDetails>
+            <OverlayIcon />
+            <span>View</span>
+          </OverlayViewDetails>
+          <DisplayNameInOverlay>{displayName}</DisplayNameInOverlay>
+        </MediaOverlay>
       </ImageContainer>
-      <CardInfo>
-        <h3>{displayName}</h3>
-      </CardInfo>
+      {/* No CardInfo block below the image */}
     </CardWrapper>
   );
 };
 
-export default MediaCard;
+export default React.memo(MediaCard);

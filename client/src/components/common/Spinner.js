@@ -11,9 +11,11 @@ const rotate = keyframes`
   }
 `;
 
-// Use $thickness for transient prop
+// Using $ for props that are *only* for styling logic and not standard HTML attributes,
+// if they were being passed down to the DOM element.
+// For `size` and `thickness`, styled-components consumes them. `color` is consumed by `theme`.
 const StyledSpinner = styled.div`
-  border: ${({ $thickness = '4px' }) => $thickness} solid ${({ theme, color }) => color || theme.secondary};
+  border: ${({ thickness = '4px' }) => thickness} solid ${({ theme, color }) => color || theme.secondary};
   border-top-color: ${({ theme, color }) => color || theme.primary};
   border-radius: 50%;
   width: ${({ size = '40px' }) => size};
@@ -27,19 +29,20 @@ const SpinnerContainer = styled.div`
   justify-content: center;
   align-items: center;
   width: 100%;
-  padding: ${({ $containerPadding }) => $containerPadding || '1rem 0'};
+  padding: ${({ $containerPadding }) => $containerPadding || '1rem 0'}; // Use transient prop
 `;
 
-// Rename prop to $thickness when passing to StyledSpinner
-const Spinner = ({ size, thickness = '4px', color, containerPadding, inline=false }) => {
+const Spinner = ({ size, thickness = '4px', color, containerPadding, inline = false }) => {
   if (inline) {
-    return <StyledSpinner size={size} $thickness={thickness} color={color} />;
+    // Pass thickness directly as it's consumed by StyledSpinner, not passed to DOM
+    return <StyledSpinner size={size} thickness={thickness} color={color} />;
   }
   return (
+    // Pass containerPadding as a transient prop to SpinnerContainer
     <SpinnerContainer $containerPadding={containerPadding}>
-      <StyledSpinner size={size} $thickness={thickness} color={color} />
+      <StyledSpinner size={size} thickness={thickness} color={color} />
     </SpinnerContainer>
   );
 };
 
-export default Spinner;
+export default React.memo(Spinner); // Memoize as it's a presentational component
