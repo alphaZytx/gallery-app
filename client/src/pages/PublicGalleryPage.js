@@ -3,12 +3,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import MediaGrid from '../components/media/MediaGrid';
 import ImageDetailModal from '../components/media/ImageDetailModal';
-import Button from '../components/common/Button'; // This will now be used
+import Button from '../components/common/Button'; // This is used
 import Spinner from '../components/common/Spinner';
 import { getPublicGalleryImages } from '../api';
-import { FiChevronLeft, FiChevronRight, FiAlertCircle, FiCameraOff } from 'react-icons/fi'; // These will now be used
+import { FiChevronLeft, FiChevronRight, FiAlertCircle, FiCameraOff } from 'react-icons/fi'; // These are used
 
-// Styled components (ensure these are correctly defined in your file as per previous versions)
+// Styled components (ensure these are defined as in previous correct versions)
 const PageContainer = styled.div`
   max-width: 1600px;
   margin: 0 auto;
@@ -90,7 +90,7 @@ const PublicGalleryPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [totalItems, setTotalItems] = useState(0); // This variable is used
+  const [totalItems, setTotalItems] = useState(0); // totalItems is used
 
   const ITEMS_PER_PAGE = parseInt(process.env.REACT_APP_GALLERY_PAGE_LIMIT, 10) || 12;
 
@@ -106,12 +106,12 @@ const PublicGalleryPage = () => {
       setImages(validImages);
       setTotalPages(response.data.totalPages || 0);
       setCurrentPage(response.data.currentPage || 1);
-      setTotalItems(response.data.totalItems || 0); // totalItems is set here
+      setTotalItems(response.data.totalItems || 0); // totalItems is set
     } catch (err) {
       console.error("PublicGalleryPage: Failed to fetch gallery images:", err.response?.data?.message || err.message);
       setError('Could not load images. Please try refreshing.');
       setImages([]);
-      setTotalItems(0); // totalItems is set here
+      setTotalItems(0); // totalItems is set
     } finally {
       setIsLoading(false);
     }
@@ -127,37 +127,34 @@ const PublicGalleryPage = () => {
 
   const closeModal = useCallback(() => setSelectedImage(null), []);
 
-  // Corrected useCallback for handlePreviousPage
   const handlePreviousPage = useCallback(() => {
-    setCurrentPage(prevCurrentPage => { // Use functional update
+    setCurrentPage(prevCurrentPage => {
       if (prevCurrentPage > 1) {
         window.scrollTo(0, 0);
         return prevCurrentPage - 1;
       }
       return prevCurrentPage;
     });
-  }, []); // No dependencies needed as setCurrentPage is stable and prevCurrentPage is from updater
+  }, []); // Correct dependency array
 
-  // Corrected useCallback for handleNextPage
   const handleNextPage = useCallback(() => {
-    // totalPages is a dependency as it's from the outer scope and can change
-    setCurrentPage(prevCurrentPage => { // Use functional update
-      if (prevCurrentPage < totalPages) {
+    setCurrentPage(prevCurrentPage => {
+      if (prevCurrentPage < totalPages) { // totalPages is from outer scope
         window.scrollTo(0, 0);
         return prevCurrentPage + 1;
       }
       return prevCurrentPage;
     });
-  }, [totalPages]); // totalPages is the correct dependency
+  }, [totalPages]); // Correct: totalPages is a dependency
 
   let content;
   if (isLoading) {
     content = <Spinner containerPadding="4rem 0" size="50px" />;
   } else if (error) {
     content = <MessageDisplay type="error"><FiAlertCircle />{error}</MessageDisplay>;
-  } else if (images.length === 0 && totalItems === 0) { // totalItems is used here
+  } else if (images.length === 0 && totalItems === 0) { // totalItems is used
     content = <MessageDisplay><FiCameraOff />No images found in the gallery yet.</MessageDisplay>;
-  } else if (images.length === 0 && totalItems > 0) { // totalItems is used here
+  } else if (images.length === 0 && totalItems > 0) { // totalItems is used
     content = <MessageDisplay><FiCameraOff />No images on this page. Try another page.</MessageDisplay>;
   } else {
     content = <MediaGrid items={images} isLoading={false} onCardClick={handleCardClick} isAdmin={false} />;
@@ -170,23 +167,23 @@ const PublicGalleryPage = () => {
         <p>Discover amazing images shared with the world.</p>
       </PageHeader>
       <GridWrapper>{content}</GridWrapper>
-      {/* Ensure pagination controls are rendered and use the functions and icons */}
+      {/* Pagination controls are now correctly using the functions and icons */}
       {!isLoading && !error && totalPages > 1 && (images.length > 0 || (currentPage > 1 && totalItems > 0)) && (
         <PaginationControls>
           <Button 
-            onClick={handlePreviousPage} // handlePreviousPage is used
+            onClick={handlePreviousPage} // Used here
             disabled={currentPage === 1} 
             variant="outline" 
-            iconStart={<FiChevronLeft />} // FiChevronLeft is used
+            iconStart={<FiChevronLeft />} // Used here
           >
             Previous
           </Button>
           <span>Page {currentPage} of {totalPages}</span>
           <Button 
-            onClick={handleNextPage} // handleNextPage is used
+            onClick={handleNextPage} // Used here
             disabled={currentPage === totalPages} 
             variant="outline" 
-            iconEnd={<FiChevronRight />} // FiChevronRight is used
+            iconEnd={<FiChevronRight />} // Used here
           >
             Next
           </Button>
