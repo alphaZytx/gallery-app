@@ -1,6 +1,6 @@
 // client/src/pages/PublicGalleryPage.js
 // THIS IS THE CORRECTED CODE - MAKE SURE YOUR FILE MATCHES THIS
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import MediaGrid from '../components/media/MediaGrid';
 import ImageDetailModal from '../components/media/ImageDetailModal';
