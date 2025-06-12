@@ -157,68 +157,90 @@ router.get('/download/:pathname(*)', async (req, res) => {
 
 // === ADMIN PROTECTED ROUTES ===
 router.post('/upload', protect, upload.single('mediaFile'), async (req, res) => {
-    // console.log("--- UPLOAD ROUTE HIT (ACTUAL LOGIC) ---");
-    if(req.file) console.log("UPLOAD ROUTE: req.file received:", { originalname: req.file.originalname, size: req.file.size }); else console.log("UPLOAD ROUTE: req.file is UNDEFINED.");
-    // console.log("UPLOAD ROUTE: req.body:", req.body);
+    console.log("--- UPLOAD ROUTE HIT (Backend handles file) ---");
+    
+    // Check if Multer successfully processed a file
+    if (!req.file) {
+        console.error("UPLOAD ERROR: Multer did not find a file in the request. 'req.file' is undefined.");
+        return res.status(400).json({ message: 'No media file was uploaded or the field name was incorrect.' });
+    }
+    
+    console.log("UPLOAD: req.file received:", { name: req.file.originalname, size: req.file.size, type: req.file.mimetype });
+    console.log("UPLOAD: req.body:", req.body);
 
-    if (!req.file) return res.status(400).json({ message: 'No media file was uploaded.' });
-    if (!BLOB_READ_WRITE_TOKEN || BLOB_READ_WRITE_TOKEN.includes('dummytoken')) return res.status(500).json({ message: "Server configuration error (blob token)." });
-    if (!redisClient || redisClient._isDummy) return res.status(503).json({ message: "Database service unavailable." });
+    // Check for necessary environment variables
+    if (!process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_WRITE_TOKEN.includes('dummytoken')) {
+        console.error("UPLOAD ERROR: BLOB_READ_WRITE_TOKEN is not configured.");
+        return res.status(500).json({ message: "Server configuration error (blob token)." });
+    }
+    if (!redisClient || redisClient._isDummy) {
+        console.error("UPLOAD ERROR: Redis client is unavailable.");
+        return res.status(503).json({ message: "Database service unavailable." });
+    }
 
     const { name, tags } = req.body;
     const fileType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
     const suggestedPathname = generateSuggestedPathname(req.file.originalname, fileType);
 
     try {
-        // console.log(`UPLOAD ROUTE: Uploading to Vercel Blob with suggested pathname: ${suggestedPathname}`);
+        console.log(`UPLOAD: Attempting to upload to Vercel Blob with suggested pathname: ${suggestedPathname}`);
+        
+        // Upload the file buffer to Vercel Blob
         const blobResult = await put(suggestedPathname, req.file.buffer, {
-            access: 'public', // As per your earlier change to make blobs public
+            access: 'public', // Set to public as per your store's requirement
             contentType: req.file.mimetype,
-            token: BLOB_READ_WRITE_TOKEN,
+            token: process.env.BLOB_READ_WRITE_TOKEN,
         });
-        // console.log("UPLOAD ROUTE: Vercel Blob upload successful. Full blobResult:", JSON.stringify(blobResult, null, 2));
 
+        console.log("UPLOAD: Vercel Blob upload successful. Full result:", JSON.stringify(blobResult, null, 2));
+
+        // CRITICAL FIX: Derive the actual stored pathname from the returned blobResult.url
         let actualStoredPathname;
         if (blobResult && blobResult.url) {
-            try {
-                const parsedUrl = new URL(blobResult.url);
-                actualStoredPathname = parsedUrl.pathname.startsWith('/') ? parsedUrl.pathname.substring(1) : parsedUrl.pathname;
-            } catch (urlParseError) {
-                console.error("UPLOAD ROUTE ERROR: Could not parse blobResult.url to get pathname", urlParseError);
-                actualStoredPathname = blobResult.pathname; 
-                console.warn("UPLOAD ROUTE WARN: Falling back to potentially incorrect blobResult.pathname provided by SDK:", actualStoredPathname);
-            }
+            const parsedUrl = new URL(blobResult.url);
+            // The pathname from URL object includes a leading slash, remove it to match Vercel's typical pathname format.
+            actualStoredPathname = parsedUrl.pathname.startsWith('/') ? parsedUrl.pathname.substring(1) : parsedUrl.pathname;
         } else {
-            console.error("UPLOAD ROUTE ERROR: blobResult.url is missing. Cannot determine actual stored pathname.");
-            throw new Error("Vercel Blob upload result did not contain a usable URL.");
+            // This is a critical failure if Vercel doesn't return a URL
+            throw new Error("Vercel Blob upload result did not contain a valid URL.");
         }
-        // console.log("UPLOAD ROUTE: Derived actual stored pathname for Redis:", actualStoredPathname);
+        
+        console.log("UPLOAD: Derived actual stored pathname for Redis:", actualStoredPathname);
 
+        // Prepare metadata for Redis
         const mediaId = uuidv4();
         const uploadTimestamp = new Date();
         const mediaData = {
-            id: mediaId, name: name || req.file.originalname,
+            id: mediaId,
+            name: name || req.file.originalname,
             tags: tags ? tags.split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean) : [],
-            url: blobResult.url, pathname: actualStoredPathname, downloadUrl: blobResult.downloadUrl,
-            contentType: req.file.mimetype, size: req.file.size.toString(), type: fileType,
-            uploadedAt: uploadTimestamp.toISOString(), uploader: req.user.email,
+            url: blobResult.url,
+            pathname: actualStoredPathname, // Use the CORRECT pathname with Vercel's suffix
+            downloadUrl: blobResult.downloadUrl,
+            contentType: req.file.mimetype,
+            size: req.file.size.toString(),
+            type: fileType,
+            uploadedAt: uploadTimestamp.toISOString(),
+            uploader: req.user.email, // From 'protect' middleware
         };
-        // console.log(`UPLOAD ROUTE: Saving metadata to Redis for mediaId: ${mediaId} with pathname: ${mediaData.pathname}`);
+
+        // Save metadata to Redis
+        console.log(`UPLOAD: Saving metadata to Redis for pathname: ${mediaData.pathname}`);
         const pipeline = redisClient.pipeline();
         pipeline.hset(`media:${mediaId}`, mediaData);
         pipeline.zadd('media_by_date', { score: uploadTimestamp.getTime(), member: mediaId });
         await pipeline.exec();
-        // console.log("UPLOAD ROUTE: Redis metadata save successful.");
+        console.log("UPLOAD: Redis metadata save successful.");
+        
+        // Send success response with the new media data
         res.status(201).json({ message: 'Media uploaded successfully.', media: mediaData });
+
     } catch (error) {
-        console.error('UPLOAD ROUTE: Upload process failed:', error);
-        if (error.name === 'BlobError' && error.message && error.message.includes('access must be "public"')) {
-             // This shouldn't be hit if access is 'public' and store allows it.
-            return res.status(500).json({ message: "Configuration error: Vercel Blob access issue."})
-        }
-        res.status(500).json({ message: 'Error uploading media.', error: error.message });
+        console.error('UPLOAD: The upload process failed:', error);
+        res.status(500).json({ message: 'An error occurred during the upload process.', error: error.message });
     }
 });
+
 
 router.get('/admin/all', protect, async (req, res) => {
     if (!redisClient || redisClient._isDummy) return res.status(503).json({ message: "Database unavailable." });
