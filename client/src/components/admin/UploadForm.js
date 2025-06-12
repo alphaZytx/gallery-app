@@ -5,6 +5,7 @@ import { useDropzone } from 'react-dropzone';
 import Button from '../common/Button'; // Optimized Button handles its own spinner
 import { FiUploadCloud, FiFileText, FiXCircle } from 'react-icons/fi';
 import { uploadMedia } from '../../api';
+import imageCompression from 'browser-image-compression';
 
 const FormContainer = styled.form`
   display: flex;
@@ -129,142 +130,161 @@ const ErrorMessage = styled(MessageText)`
   background-color: ${({ theme }) => (theme.danger || '#dc3545')}1A; // Light background for error
 `;
 
-// Optional: Success message styling if you want to show it within the form
-// const SuccessMessage = styled(MessageText)`
-//   color: ${({ theme }) => theme.accent || '#28a745'};
-//   background-color: ${({ theme }) => (theme.accent || '#28a745')}1A;
-// `;
+const StatusText = styled.p`
+  text-align: center;
+  color: ${({ theme }) => theme.secondary};
+  font-weight: 500;
+  margin-top: -0.5rem;
+  margin-bottom: 0.5rem;
+`;
+
 
 const UploadForm = ({ onUploadSuccess, closeModal }) => {
-  const [file, setFile] = useState(null);
-  const [customName, setCustomName] = useState('');
-  const [tags, setTags] = useState('');
-  const [isUploading, setIsUploading] = useState(false); // Renamed from isLoading for clarity
-  const [error, setError] = useState('');
-  // const [uploadProgress, setUploadProgress] = useState(0); // For detailed progress bar
+    const [file, setFile] = useState(null);
+    const [customName, setCustomName] = useState('');
+    const [tags, setTags] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [statusText, setStatusText] = useState(''); // To show "Compressing..." feedback
 
-  const onDrop = useCallback((acceptedFiles) => {
-    if (acceptedFiles && acceptedFiles.length > 0) {
-      const currentFile = acceptedFiles[0];
-      const maxSize = currentFile.type.startsWith('image/') ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
-      if (currentFile.size > maxSize) {
-        setError(`File too large. Max: ${maxSize / (1024*1024)}MB.`);
+    const onDrop = useCallback((acceptedFiles) => {
+        if (acceptedFiles && acceptedFiles.length > 0) {
+            setFile(acceptedFiles[0]);
+            setCustomName(acceptedFiles[0].name.split('.').slice(0, -1).join('.'));
+            setError('');
+            setStatusText('');
+        }
+    }, []);
+
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+        onDrop,
+        accept: {
+            'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'],
+            'video/*': ['.mp4', '.webm', '.mov'] // Videos will not be compressed
+        },
+        multiple: false,
+    });
+
+    const handleRemoveFile = () => {
         setFile(null);
-        return;
-      }
-      setFile(currentFile);
-      setCustomName(currentFile.name.split('.').slice(0, -1).join('.'));
-      setError('');
-    }
-  }, []);
+        setCustomName('');
+        setTags('');
+        setError('');
+        setStatusText('');
+    };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'],
-      'video/*': ['.mp4', '.webm', '.mov'] // Adjust as per backend allowed types
-    },
-    multiple: false,
-  });
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!file) {
+            setError('Please select a file to upload.');
+            return;
+        }
+        setIsLoading(true);
+        setError('');
+        setStatusText('');
 
-  const handleRemoveFile = () => {
-    setFile(null);
-    setCustomName('');
-    setTags('');
-    setError('');
-  };
+        let fileToUpload = file;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!file) {
-      setError('Please select a file to upload.');
-      return;
-    }
-    setIsUploading(true);
-    setError('');
+        // --- IMAGE COMPRESSION LOGIC ---
+        // Only compress if it's an image and larger than a certain threshold (e.g., 200KB)
+        if (file.type.startsWith('image/') && file.size > 200 * 1024) {
+            setStatusText('Compressing image...');
+            console.log(`Original image size: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+            try {
+                const options = {
+                    maxSizeMB: 4.0,          // Target size to be well under Vercel's limit
+                    maxWidthOrHeight: 1920,  // Resize large images to a reasonable web dimension
+                    useWebWorker: true,      // Use a web worker for smoother performance
+                    onProgress: (p) => setStatusText(`Compressing... ${p}%`) // Show compression progress
+                };
+                const compressedFile = await imageCompression(file, options);
+                console.log(`Compressed image size: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
+                fileToUpload = new File([compressedFile], file.name, { type: file.type }); // Re-create as a File object with original name
+            } catch (compressionError) {
+                console.error('Image compression failed:', compressionError);
+                setError('Could not compress image. Please try a smaller file.');
+                setIsLoading(false);
+                return;
+            }
+        }
 
-    const formData = new FormData();
-    formData.append('mediaFile', file);
-    if (customName.trim()) formData.append('name', customName.trim());
-    if (tags.trim()) formData.append('tags', tags.trim());
+        // Check video size before attempting upload
+        if (file.type.startsWith('video/') && file.size > 4.5 * 1024 * 1024) {
+            setError('Video file is too large (max ~4.5MB). This app does not support video compression.');
+            setIsLoading(false);
+            return;
+        }
+        // --- END OF COMPRESSION LOGIC ---
 
-    try {
-      const response = await uploadMedia(formData);
-      onUploadSuccess(response.data.media); // This should trigger success message in parent
-      setFile(null);
-      setCustomName('');
-      setTags('');
-      // Success message handled by parent (AdminDashboardPage)
-      if(closeModal) closeModal();
-    } catch (err) {
-      console.error('Upload failed in UploadForm:', err.response?.data?.message || err.message);
-      setError(err.response?.data?.message || 'Upload failed. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
+        setStatusText('Uploading file...');
+        const formData = new FormData();
+        formData.append('mediaFile', fileToUpload);
+        if (customName.trim()) formData.append('name', customName.trim());
+        if (tags.trim()) formData.append('tags', tags.trim());
 
-  return (
-    <FormContainer onSubmit={handleSubmit}>
-      <DropzoneContainer {...getRootProps()} $isDragActive={isDragActive}>
-        <input {...getInputProps()} />
-        <UploadIcon />
-        {isDragActive ? (
-          <p>Drop the file here ...</p>
-        ) : (
-          <p>Drag 'n' drop a file here, or click to select file</p>
-        )}
-        <small style={{ color: 'grey', marginTop: '5px', display: 'block' }}>Images up to 10MB. Videos up to 100MB.</small>
-      </DropzoneContainer>
+        try {
+            const response = await uploadMedia(formData); // This should now work for compressed images
+            onUploadSuccess(response.data.media);
+            handleRemoveFile(); // Clear form on success
+            if(closeModal) closeModal();
+        } catch (err) {
+            console.error('Upload failed:', err.response?.data?.message || err.message);
+            setError(err.response?.data?.message || 'Upload failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+            setStatusText('');
+        }
+    };
 
-      {file && (
-        <FilePreviewContainer>
-          <FileInfo>
-            <FiFileText />
-            <span>{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-          </FileInfo>
-          <RemoveFileButton type="button" onClick={handleRemoveFile} aria-label="Remove file">
-            <FiXCircle />
-          </RemoveFileButton>
-        </FilePreviewContainer>
-      )}
+    return (
+        <FormContainer onSubmit={handleSubmit}>
+            <DropzoneContainer {...getRootProps()} $isDragActive={isDragActive}>
+                <input {...getInputProps()} />
+                <UploadIcon />
+                <p>Drag 'n' drop a file here, or click to select</p>
+                <small style={{ color: 'grey', marginTop: '5px', display: 'block' }}>Images will be compressed. Videos max ~4.5MB.</small>
+            </DropzoneContainer>
 
-      {error && <ErrorMessage>{error}</ErrorMessage>}
-      
-      <InputGroup>
-        <label htmlFor="customNameUploadForm">Custom Name (Optional)</label>
-        <input
-          type="text"
-          id="customNameUploadForm"
-          value={customName}
-          onChange={(e) => setCustomName(e.target.value)}
-          placeholder="e.g., Sunset Over Mountains"
-          disabled={isUploading}
-        />
-      </InputGroup>
+            {file && (
+                <FilePreviewContainer>
+                    <FileInfo>
+                        <FiFileText />
+                        <span>{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    </FileInfo>
+                    <RemoveFileButton type="button" onClick={handleRemoveFile} aria-label="Remove file">
+                        <FiXCircle />
+                    </RemoveFileButton>
+                </FilePreviewContainer>
+            )}
 
-      <InputGroup>
-        <label htmlFor="tagsUploadForm">Tags (Optional, comma-separated)</label>
-        <input
-          type="text"
-          id="tagsUploadForm"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="e.g., nature, landscape, sunset"
-          disabled={isUploading}
-        />
-      </InputGroup>
+            {statusText && !error && <StatusText>{statusText}</StatusText>}
+            {error && <ErrorMessage>{error}</ErrorMessage>}
+            
+            <InputGroup>
+                <label htmlFor="customNameUploadForm">Custom Name (Optional)</label>
+                <input
+                    type="text" id="customNameUploadForm" value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    placeholder="e.g., Sunset Over Mountains"
+                    disabled={isLoading}
+                />
+            </InputGroup>
 
-      <Button 
-        type="submit" 
-        variant="primary" 
-        isLoading={isUploading} // Pass state to Button's isLoading prop
-        disabled={isUploading || !file}
-      >
-        Upload Media
-      </Button>
-    </FormContainer>
-  );
+            <InputGroup>
+                <label htmlFor="tagsUploadForm">Tags (Optional, comma-separated)</label>
+                <input
+                    type="text" id="tagsUploadForm" value={tags}
+                    onChange={(e) => setTags(e.target.value)}
+                    placeholder="e.g., nature, landscape, sunset"
+                    disabled={isLoading}
+                />
+            </InputGroup>
+
+            <Button type="submit" variant="primary" isLoading={isLoading} disabled={isLoading || !file}>
+                {isLoading ? (statusText || 'Processing...') : 'Upload Media'}
+            </Button>
+        </FormContainer>
+    );
 };
 
 export default React.memo(UploadForm);
